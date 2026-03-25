@@ -1,0 +1,278 @@
+Stock Prediction Project Progress
+
+Date: March 25, 2026
+
+Current Objective
+
+Build a chart-first stock scenario application that:
+
+- uses free data sources by default,
+- keeps data providers modular so paid sources can be added later,
+- supports replay from a previous point in time,
+- and shows forecast distributions and realized outcomes in an easy-to-review UI.
+
+Completed Work
+
+1. Project architecture and planning
+
+- Created a high-level product and system architecture in `architecture_predict.txt`.
+- Created a broader modeling and product brainstorm in `brainstorm_predict.txt`.
+- Explicitly documented:
+	- TradingView-style UI goals,
+	- timeframe support from 1 minute to 1 month,
+	- free versus paid data provider strategy,
+	- replay mode requirements,
+	- local Mac and Docker deployment assumptions.
+
+2. Repository and scaffold setup
+
+- Initialized a git repository in `predict_engine/`.
+- Configured remote `origin` to:
+	- `https://github.com/laurentmarais/stock-prediction.git`
+- Added project-level files:
+	- `.gitignore`
+	- `README.md`
+	- `docker-compose.yml`
+
+3. Backend scaffold
+
+- Built a FastAPI backend in `backend/app/`.
+- Added API routes for:
+	- health
+	- chart data
+	- forecast data
+	- provider status
+- Added schema models for:
+	- OHLCV bars
+	- forecast bands
+	- scenarios
+	- regime history
+- Added provider selection through environment variables in `backend/app/core/settings.py`.
+- Added provider registry in `backend/app/services/provider_registry.py`.
+
+4. Free-source provider modules
+
+- Implemented modular provider adapters for:
+	- market data: Yahoo Finance
+	- fundamentals: Yahoo Finance
+	- macro: FRED via direct CSV endpoint
+	- events: public Yahoo calendar data
+- Added provider contract documentation in:
+	- `backend/app/services/providers/README.md`
+
+Provider modularity design
+
+- Each provider category is isolated behind a narrow interface.
+- The rest of the app does not talk directly to a vendor implementation.
+- Future paid provider upgrades should mostly require:
+	- a new adapter file,
+	- a registry entry,
+	- optional env-var configuration.
+
+5. Replay support
+
+- Added `as_of` support to chart and forecast endpoints.
+- Replay mode now cuts the available data at the chosen anchor point.
+- Forecasts are generated using only history available up to that point.
+- The frontend overlays:
+	- historical bars up to the anchor,
+	- forecast cone and median path,
+	- realized post-anchor path.
+
+6. Frontend scaffold
+
+- Built a React + Vite frontend with Lightweight Charts.
+- Added:
+	- symbol input
+	- timeframe switching
+	- replay datetime input
+	- forecast chart
+	- scenario side panel
+	- provider visibility panel
+- Added production build support and verified the frontend compiles successfully.
+
+7. Replay UX improvements
+
+- Added a replay scrubber backed by real historical bars.
+- Added a visible anchor banner above the chart.
+- Added replay-results metrics in the side panel:
+	- realized return
+	- max drawdown
+	- inside 10-90 band
+	- inside 25-75 band
+	- median path error
+- Added a replay checkpoint table for:
+	- 5 bars
+	- 10 bars
+	- 20 bars
+
+8. Forecast engine improvements
+
+Initial version:
+
+- simple historical return bootstrap sampler
+
+Current version:
+
+- regime-aware historical block sampler
+- regime labels based on:
+	- rolling 20-bar volatility
+	- 60-bar trend state
+- current regime metadata returned by API:
+	- `regime_label`
+	- `regime_match_count`
+- recent regime history returned for frontend display
+
+9. Regime visualization
+
+- Added a regime history strip to the frontend.
+- The UI now shows:
+	- current regime label,
+	- count of matched historical periods,
+	- recent regime states leading into the replay anchor.
+
+Runtime Validation Completed
+
+Backend
+
+- FastAPI app imports successfully.
+- Health endpoint works.
+- Chart endpoint works.
+- Forecast endpoint works in both normal and replay mode.
+
+Frontend
+
+- `npm install` completed successfully.
+- `npm run build` completed successfully multiple times after incremental changes.
+
+Live endpoint checks completed successfully
+
+- `GET /health`
+- `GET /api/chart?symbol=AAPL&timeframe=1d`
+- `GET /api/chart?symbol=AAPL&timeframe=1d&as_of=2025-01-31T16:00`
+- `GET /api/forecast?symbol=AAPL&timeframe=1d&horizon_bars=20&as_of=2025-01-31T16:00`
+- `GET /api/forecast?symbol=MSFT&timeframe=1d&horizon_bars=20&as_of=2024-10-15T16:00`
+
+Important Fixes Made
+
+1. Python 3.13 compatibility
+
+- Removed `pandas-datareader` dependency from the macro provider path because it relied on `distutils`, which breaks on Python 3.13.
+- Replaced it with a direct FRED CSV fetch in the FRED provider adapter.
+
+2. Yahoo Finance MultiIndex normalization
+
+- Yahoo market data sometimes returned a `MultiIndex` column shape even for a single ticker.
+- Added normalization in the Yahoo market provider so downstream code always sees a stable schema.
+
+3. Replay forecast endpoint bug
+
+- Fixed the 1-dimensional sampling bug that came from provider output shape mismatches.
+
+4. Regime history timestamp bug
+
+- Fixed a bug where integer positions were incorrectly used as timestamps in the returned regime history.
+- Regime history now carries explicit timestamps and separate integer positions for sampling.
+
+Current Project State
+
+What is working now
+
+- modular backend and frontend scaffold
+- free-source data flow
+- replay-aware chart and forecast endpoints
+- live frontend build
+- replay comparison UI
+- regime-aware forecast metadata
+- regime history strip in the UI
+
+What is still basic
+
+- forecast model is still a lightweight heuristic engine, not a full ML or HMM-based probabilistic model
+- no database persistence yet beyond the code scaffold assumptions
+- no calibration dashboard yet
+- no saved replay sessions or watchlists yet
+- no true point-in-time fundamentals dataset, only point-in-time-like behavior via historical chart anchoring and current free-source snapshots
+
+Current Data Source Status
+
+Using free sources now:
+
+- market: Yahoo Finance
+- fundamentals: Yahoo Finance
+- macro: FRED
+- events: Yahoo/public data
+
+Future paid upgrades likely to matter most for:
+
+- reliable intraday market data
+- historical options surfaces
+- point-in-time fundamentals and estimate revisions
+- normalized event feeds
+
+Suggested paid upgrades later:
+
+- market: Polygon or Databento
+- fundamentals: Intrinio, FactSet, or similar
+- events: Wall Street Horizon
+- options: ThetaData, ORATS, or Polygon options
+
+Files Of Highest Importance Right Now
+
+- `architecture_predict.txt`
+- `brainstorm_predict.txt`
+- `backend/app/main.py`
+- `backend/app/services/forecast_service.py`
+- `backend/app/services/provider_registry.py`
+- `backend/app/services/providers/README.md`
+- `frontend/src/App.tsx`
+- `frontend/src/components/ChartPanel.tsx`
+- `frontend/src/components/ReplayTable.tsx`
+- `frontend/src/components/RegimeStrip.tsx`
+- `frontend/src/components/ScenarioPanel.tsx`
+
+Recommended Next Steps
+
+Priority 1: Improve model quality
+
+- Replace the rule-based regime classifier with a true HMM-based regime model while preserving the current response contract.
+- Add a simple feature-based drift adjustment so forecasts do not depend only on matched historical blocks.
+- Add separate volatility modeling rather than relying only on sampled return blocks.
+
+Priority 2: Add calibration and review tools
+
+- Build a calibration view showing:
+	- how often realized outcomes stay inside the 10-90 band,
+	- how often they stay inside the 25-75 band,
+	- realized error versus median path,
+	- replay-by-replay evaluation.
+
+Priority 3: Improve replay workflow further
+
+- Add an on-chart replay anchor marker directly inside the chart area.
+- Add realized path labeling on-chart.
+- Add replay session controls such as stepping one bar forward or backward.
+
+Priority 4: Prepare for stronger data sources
+
+- Add placeholder provider modules for likely paid upgrades even if they are not yet implemented.
+- Keep the provider contract strict enough that upgrades do not force broad refactors.
+
+Priority 5: Operationalize the app
+
+- Add persistent storage for forecasts, replay sessions, and cached chart responses.
+- Add API tests.
+- Add frontend fetch error handling and loading states.
+- Add Docker runtime validation if container execution becomes the preferred path.
+
+Recommended Immediate Next Task
+
+The highest-value next engineering step is:
+
+- implement an HMM-based regime classifier behind the existing regime interface,
+
+because that improves forecast realism without forcing major API or UI redesign.
+
+Short Handoff Summary
+
+The project has moved from architecture notes into a working, replay-aware prototype with a live backend, a buildable frontend, modular free-source providers, regime-aware forecasting, and multiple replay comparison views. The next major milestone should focus on improving probabilistic forecast quality and calibration rather than adding more surface-level UI features.

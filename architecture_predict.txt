@@ -1,0 +1,568 @@
+STOCK FUTURE PROBABILITY APP
+
+Architecture Specification
+
+1. Product Architecture For A Usable App
+
+The next step is not just model architecture. It is product architecture.
+
+The system should be designed as four layers:
+
+1. UI layer
+2. API and orchestration layer
+3. data and feature layer
+4. forecast engine layer
+
+Recommended structure:
+
+UI layer:
+
+- web app with a TradingView-like chart experience
+- symbol search
+- timeframe switching
+- overlay of historical candles plus forecast cones and scenario paths
+- scenario table, probability cards, and event panel
+
+API and orchestration layer:
+
+- REST or GraphQL API for chart data, forecast requests, scenario summaries, and event calendars
+- background job queue for heavy forecast generation
+- cache layer so the UI is fast even when forecasts are expensive
+
+Data and feature layer:
+
+- local time-series store for OHLCV and macro series
+- feature store for engineered features
+- forecast result store for simulated distributions and summary metrics
+
+Forecast engine layer:
+
+- regime module
+- distribution model module
+- event shock module
+- simulation engine
+- calibration and backtest engine
+- replay engine for point-in-time forecasts and realized outcome comparison
+
+This separation matters because the UI needs fast reads while the modeling layer can take seconds or minutes.
+
+Replay requirement:
+
+- every provider should support an `as_of` or equivalent point-in-time anchor whenever the underlying data source allows it
+- forecasts generated in replay mode should only use candles, fundamentals, macro values, and event knowledge available at that anchor time
+- the app should be able to overlay the forward forecast from the replay anchor against the realized path that actually followed
+
+------------------------------------------------------------------------
+
+2. UI Design Similar To TradingView
+
+The UI should feel like a chart-first workstation, not a notebook or dashboard.
+
+Main screen layout:
+
+Top bar:
+
+- symbol search
+- exchange selector if needed
+- timeframe buttons
+- refresh forecast button
+- scenario date horizon selector
+- model mode selector such as baseline, event-aware, or full engine
+
+Center panel:
+
+- candlestick chart as the primary visual
+- historical candles on the left
+- forward forecast region on the right starting at the latest candle
+- percentile bands shown as shaded probability cones
+- optional overlay of sample future paths
+- optional overlay of earnings date, macro events, and regime-change markers
+
+Right panel:
+
+- current regime label and transition probabilities
+- bull, base, bear, and tail scenario cards with probabilities
+- probability of threshold moves such as plus 5%, minus 10%, drawdown worse than 15%
+- short explanation of what is driving the forecast now
+
+Bottom panel tabs:
+
+- scenario table
+- analogue cases
+- event calendar
+- calibration view
+- feature importance or driver view
+- replay results view showing forecast versus realized outcome
+
+The chart should let the user toggle:
+
+- candles only
+- candles plus forecast cone
+- candles plus simulated paths
+- candles plus event markers
+- candles plus regime shading
+
+------------------------------------------------------------------------
+
+3. Timeframe Design
+
+The system should support both raw market viewing and forecast viewing across multiple intervals.
+
+Recommended candle intervals:
+
+- 1 minute
+- 5 minute
+- 15 minute
+- 30 minute
+- 1 hour
+- 4 hour
+- 1 day
+- 1 week
+- 1 month
+
+Reasonable rules:
+
+- intraday forecast overlays should usually be short horizon only
+- daily and weekly charts should be the main forecast mode for 20-day to 120-day horizons
+- monthly view should be summary-oriented, not path-dense
+
+Recommended mapping between chart timeframe and forecast horizon:
+
+- 1 minute to 15 minute candles: intraday volatility and event-risk view
+- 30 minute to 4 hour candles: multi-day tactical forecast
+- 1 day candles: standard swing-trade forecast
+- 1 week candles: medium-horizon regime view
+- 1 month candles: strategic scenario summary only
+
+Important product constraint:
+
+Trying to make one-minute forecasts with the same model used for 20-day or 60-day distributions is usually a mistake.
+
+Use separate short-horizon models for intraday if that feature is needed.
+
+Replay constraint:
+
+- for replay mode, intraday use should only be enabled where the selected provider can supply reliable historical intraday data for the selected date range
+- daily replay should be the default because free data is much more dependable there
+
+------------------------------------------------------------------------
+
+4. Best Way To Visualize Forecasted Realities And Their Odds
+
+The easiest UI mistake is to show too many simulated paths and make the chart unreadable.
+
+Better visual design:
+
+Primary forecast overlay:
+
+- median path
+- 10th to 90th percentile cone
+- 25th to 75th percentile inner band
+
+Scenario overlays:
+
+- base scenario path in neutral color
+- bull scenario in green
+- bear scenario in red
+- tail scenario in orange or gray
+
+Probability widgets:
+
+- probability above current price at selected horizon
+- probability of gain above thresholds
+- probability of drawdown thresholds
+- event gap probability into next earnings
+
+Analogue panel:
+
+- show the five or ten closest historical setups
+- show their realized forward paths
+- show summary odds from those analogues
+
+Regime panel:
+
+- current regime
+- transition matrix summary
+- how the forecast changes if regime persists versus shifts
+
+This gives the user both a chart view and a decision view.
+
+------------------------------------------------------------------------
+
+5. Frontend Technology Choices
+
+Best practical frontend stack:
+
+- React or Next.js
+- TypeScript
+- Lightweight Charts for the main chart
+- Zustand or Redux Toolkit for state
+- TanStack Query for server data fetching
+- Tailwind CSS or a small custom design system
+
+Why Lightweight Charts:
+
+- it gives a TradingView-like visual style,
+- it is lightweight,
+- it is easier to integrate than a full enterprise chart package,
+- and it is appropriate for a local or lightweight containerized app.
+
+Alternative:
+
+- the TradingView Charting Library provides a richer professional interface, but it is heavier and comes with licensing and integration constraints.
+
+For a personal or first build, Lightweight Charts is the more practical choice.
+
+------------------------------------------------------------------------
+
+6. Backend And Compute Architecture
+
+Recommended backend stack:
+
+- Python FastAPI service
+- PostgreSQL with TimescaleDB extension if time-series scale grows
+- Redis for caching and short-lived forecast jobs
+- Celery, RQ, or Dramatiq for background simulation jobs
+- Parquet files for offline feature and training data storage
+
+Logical services:
+
+Chart data service:
+
+- returns candles and volume for selected interval
+
+Forecast service:
+
+- triggers model inference and simulation
+- returns scenario summaries and probability distributions
+
+Event service:
+
+- returns earnings calendar and known catalysts
+
+Calibration service:
+
+- exposes backtest quality and forecast reliability metrics
+
+Feature pipeline:
+
+- scheduled jobs to refresh features and retrain when needed
+
+This is enough for a capable workstation app without forcing a heavy microservices architecture.
+
+------------------------------------------------------------------------
+
+7. Data Source Strategy By Input Type
+
+The app needs different quality levels for different data domains.
+
+The most important distinction is:
+
+- what can be built reasonably well with free data,
+- what becomes much better with paid data,
+- what almost requires paid data if you care about reliability.
+
+7.1 Price And OHLCV Data
+
+Free options:
+
+- Yahoo Finance via yfinance
+- Stooq
+- Alpha Vantage free tier
+- Twelve Data free tier
+- Alpaca market data free tiers for some use cases
+
+Paid or higher-quality options:
+
+- Polygon
+- Databento
+- IEX Cloud style direct-feed products where available
+- Tiingo paid plans
+- NxCore, Refinitiv, Bloomberg, or FactSet at much higher cost tiers
+
+Comparison:
+
+- Free data is usually acceptable for daily bars and basic prototypes.
+- Free intraday data is often rate-limited, incomplete, delayed, or inconsistent in split and dividend handling.
+- Paid data is strongly preferred for 1-minute to 1-hour candles, especially if you want stable coverage, adjusted data, and predictable API quality.
+- Replay mode is only as trustworthy as the historical point-in-time coverage of the source, so free providers are more suitable for daily replay than for deep intraday replay.
+
+Recommendation:
+
+- prototype: Yahoo Finance for daily data, Polygon or Databento for intraday if budget allows
+- production-quality app: Polygon or Databento for price data
+
+Provider modularization rule:
+
+- each provider module should expose the same interface so the app can switch from free to paid sources by configuration rather than broad code changes
+- adapters should hide provider-specific symbols, pagination, authentication, and response shapes from the rest of the application
+- replay support should be treated as part of the provider contract, not an afterthought
+
+7.2 Fundamentals
+
+Free options:
+
+- SEC EDGAR filings
+- company investor-relations pages
+- Financial Modeling Prep limited/free plans
+- Alpha Vantage fundamentals
+- yfinance company fields
+
+Paid or higher-quality options:
+
+- Financial Modeling Prep paid
+- Intrinio
+- S&P Capital IQ
+- FactSet
+- Bloomberg
+- LSEG Refinitiv
+
+Comparison:
+
+- Free data can cover reported financials reasonably for many U.S. names.
+- Free data is weaker for clean historical restatements, estimate history, segment detail, and point-in-time accuracy.
+- Paid institutional data is much better if you want reliable revisions, consensus changes, and survivorship-safe history.
+
+Recommendation:
+
+- prototype: SEC EDGAR plus Financial Modeling Prep paid or limited use of free endpoints
+- serious engine: Intrinio, FactSet, Capital IQ, or Refinitiv depending budget
+
+7.3 Macro Data
+
+Free options:
+
+- FRED
+- U.S. Treasury data
+- BLS for CPI and labor data
+- BEA for growth and income data
+- EIA for oil and energy data
+- ECB, BOJ, and other central-bank public datasets
+
+Paid or higher-quality options:
+
+- Bloomberg
+- Refinitiv
+- Macrobond
+
+Comparison:
+
+- Macro data is the easiest category to source well for free.
+- Paid providers mostly help with normalization, historical vintages, breadth, and workflow convenience.
+
+Recommendation:
+
+- use free public macro data first
+- only pay for macro if workflow speed and revision-vintage quality become important
+
+7.4 Options Data
+
+Free options:
+
+- Yahoo Finance option chains
+- broker APIs with limited chain access
+
+Paid or higher-quality options:
+
+- Polygon options
+- ORATS
+- ThetaData
+- Cboe DataShop
+- OptionMetrics
+- Hanweck
+
+Comparison:
+
+- Free options data is usually enough to inspect current chains, implied volatility, and crude event-implied moves.
+- Free options data is weak for historical surface reconstruction, open-interest quality, skew history, dealer-position inference, and robust backtesting.
+- Paid options data becomes very important if options-implied priors are central to the engine.
+
+Recommendation:
+
+- prototype: free chains for current implied move only
+- advanced engine: ThetaData, ORATS, Polygon options, or OptionMetrics depending depth needed
+
+7.5 Event Data
+
+Free options:
+
+- company IR calendars
+- SEC 8-K filings
+- Nasdaq earnings calendar
+- FDA public calendars
+- public economic calendar sources
+
+Paid or higher-quality options:
+
+- Benzinga event feeds
+- Wall Street Horizon
+- FactSet event datasets
+- Bloomberg calendars and event feeds
+
+Comparison:
+
+- Free event data can cover many obvious scheduled events.
+- Paid event feeds are much better for normalized corporate actions, clean earnings calendars, conference schedules, and event metadata.
+
+Recommendation:
+
+- prototype: combine public calendars and filings
+- if event modeling becomes important: Wall Street Horizon or a similar event vendor is worth it
+
+7.6 Estimates, Revisions, And Sentiment
+
+Free options:
+
+- almost no truly robust free source for point-in-time analyst estimate history
+- some headline and RSS-based sentiment proxies
+
+Paid or higher-quality options:
+
+- FactSet estimates
+- Refinitiv estimates
+- Bloomberg estimates
+- RavenPack or similar for structured news sentiment
+
+Comparison:
+
+- this is one of the clearest areas where paid data is meaningfully better.
+- point-in-time estimate revision data is hard to replace with free alternatives.
+
+Recommendation:
+
+- skip this in the MVP unless budget exists
+- add it later only if the model clearly benefits from it
+
+------------------------------------------------------------------------
+
+8. Free Versus Paid Data Summary
+
+What is good enough with free data:
+
+- daily OHLCV for prototyping
+- broad macro data
+- reported fundamentals for many U.S. companies
+- basic event calendars
+
+What becomes much better with paid data:
+
+- reliable intraday candles
+- historical options surfaces and implied-volatility structure
+- normalized point-in-time fundamentals and revisions
+- event metadata
+
+What is close to paid-only if quality matters:
+
+- robust options history
+- clean analyst estimate history
+- institutional-grade point-in-time fundamental database
+- normalized corporate event feeds at scale
+
+Practical conclusion:
+
+- a good MVP can be built with mostly free macro data and mixed free-plus-paid price data,
+- but a strong professional probability engine will eventually want paid intraday and options data.
+
+------------------------------------------------------------------------
+
+9. Deployment On A Mac Or In A Container
+
+This app can run on a Mac without extreme hardware if the first version stays disciplined.
+
+Recommended local setup:
+
+- frontend running in Node
+- backend running in Python FastAPI
+- PostgreSQL locally or in Docker
+- Redis optionally in Docker
+- training and forecast jobs running locally with CPU first
+
+Container setup:
+
+- one container for frontend
+- one container for API
+- one container for PostgreSQL
+- one container for Redis
+- optional worker container for simulation jobs
+
+This is still reasonable on a modern Mac if the forecast engine is not retraining massive deep-learning models constantly.
+
+Expected resource profile for an MVP:
+
+- idle UI and API: light
+- chart queries and cached forecast reads: light to moderate
+- on-demand Monte Carlo with a few thousand paths: moderate
+- full retraining across many symbols: moderate to heavy depending scope
+
+Practical recommendation:
+
+- use CPU-based gradient boosting and probabilistic models first
+- avoid deep neural sequence models in the MVP
+- precompute forecasts for watchlists rather than every symbol on demand
+
+That will keep the app responsive on a MacBook and manageable in Docker.
+
+------------------------------------------------------------------------
+
+10. Recommended MVP Architecture
+
+If the goal is to build something real and useful without making it too resource intensive, I would start with this:
+
+Frontend:
+
+- React or Next.js
+- Lightweight Charts
+- symbol search, timeframe switcher, forecast cone, scenario panel
+
+Backend:
+
+- FastAPI
+- PostgreSQL
+- Redis cache
+- background worker for forecast jobs
+
+Data:
+
+- Yahoo Finance for daily prototyping
+- Polygon or Databento for intraday if budget allows
+- FRED, Treasury, BLS, and EIA for macro
+- SEC plus Financial Modeling Prep for fundamentals
+- optional free options chains for simple implied move estimates
+
+Model stack:
+
+- HMM regime model
+- gradient-boosted quantile models for returns
+- empirical earnings jump model
+- mixture Monte Carlo
+- calibration dashboard
+
+User-facing output:
+
+- chart with historical candles plus forecast cone
+- bull, base, bear, and tail scenario cards
+- threshold move probabilities
+- analogue cases
+- regime sensitivity panel
+
+This version is feasible on a Mac and inside Docker without becoming a heavy research cluster.
+
+------------------------------------------------------------------------
+
+11. Final Product Recommendation
+
+The best architecture is a chart-first application with a lightweight but probabilistically serious backend.
+
+It should:
+
+- feel like TradingView in the UI,
+- use separate models for regime, event risk, and conditional distributions,
+- store data locally for speed,
+- rely on free macro data and mixed-quality market data in the MVP,
+- and only add paid options, revisions, and institutional fundamentals when the product proves the need.
+
+The most important design principle is this:
+
+the app should make uncertainty easy to see.
+
+That means the chart, probability cards, scenario table, and event markers should all work together so the user can understand both the likely path and the tail risks without reading a research memo.
