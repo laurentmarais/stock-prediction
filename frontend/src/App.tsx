@@ -31,6 +31,48 @@ type RealizedPoint = {
   value: number;
 };
 
+type ValueLinePoint = {
+  time: string;
+  fair_value: number;
+};
+
+type ValueLineSummary = {
+  fair_value: number | null;
+  upside_pct: number | null;
+  price_vs_value_pct: number | null;
+  active_models: number;
+  signal: string;
+};
+
+type MacroFactorExposure = {
+  factor: string;
+  label: string;
+  current_z: number;
+  sensitivity: number;
+  impact_score: number;
+  direction: string;
+};
+
+type MacroImpactSummary = {
+  regime_label: string;
+  signal: string;
+  score: number;
+  tailwind_factor: string | null;
+  headwind_factor: string | null;
+  exposures: MacroFactorExposure[];
+};
+
+type ValueLineResponse = {
+  symbol: string;
+  timeframe: string;
+  anchor_time: string;
+  current_price: number;
+  lookback_bars: number;
+  points: ValueLinePoint[];
+  summary: ValueLineSummary;
+  components: { name: string; fair_value: number | null }[];
+};
+
 type ReplaySummary = {
   realizedReturnPct: number | null;
   maxDrawdownPct: number | null;
@@ -51,17 +93,55 @@ type ForecastResponse = {
   forecast: ForecastPoint[];
   regime_history: { time: string; regime: string }[];
   scenarios: { name: string; probability: number; description: string }[];
+  macro: MacroImpactSummary;
+  value_line: ValueLineSummary;
 };
 
+type SymbolProfile = {
+  symbol: string;
+  requested_symbol: string;
+  company_name: string | null;
+  display_name: string | null;
+  exchange: string | null;
+  exchange_code: string | null;
+  quote_type: string | null;
+  sector: string | null;
+  industry: string | null;
+  matched_exact_symbol: boolean;
+};
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  const contentType = response.headers.get("content-type") ?? "";
+  const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const detail = typeof payload === "object" && payload && "detail" in payload
+      ? String(payload.detail)
+      : response.statusText || "Request failed";
+    throw new Error(detail);
+  }
+
+  return payload as T;
+}
+
 export default function App() {
+  const [symbolInput, setSymbolInput] = useState("AAPL");
   const [symbol, setSymbol] = useState("AAPL");
   const [timeframe, setTimeframe] = useState("1d");
   const [replayDate, setReplayDate] = useState("");
   const [bars, setBars] = useState<Bar[]>([]);
   const [fullHistory, setFullHistory] = useState<Bar[]>([]);
   const [realizedPath, setRealizedPath] = useState<RealizedPoint[]>([]);
+  const [valueLine, setValueLine] = useState<ValueLineResponse | null>(null);
   const [forecast, setForecast] = useState<ForecastResponse | null>(null);
+  const [symbolProfile, setSymbolProfile] = useState<SymbolProfile | null>(null);
   const [providers, setProviders] = useState<Record<string, { selected: string; available: string[] }> | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  const normalizedSymbolInput = symbolInput.trim().toUpperCase();
+  const companyName = symbolProfile?.company_name ?? symbolProfile?.display_name;
+  const companyMeta = [symbolProfile?.exchange, symbolProfile?.quote_type].filter(Boolean).join(" • ");
 
   const replayIndex = replayDate
     ? fullHistory.findIndex((bar) => bar.time.startsWith(replayDate.slice(0, 10)))
@@ -108,13 +188,70 @@ export default function App() {
   })();
 
   useEffect(() => {
-    void Promise.all([
-      fetch(`${API_BASE_URL}/api/chart?symbol=${symbol}&timeframe=${timeframe}`).then((response) => response.json()),
-      fetch(`${API_BASE_URL}/api/providers`).then((response) => response.json()),
-    ]).then(([historyData, providerData]) => {
-      setFullHistory(historyData);
-      setProviders(providerData);
-    });
+    let cancelled = false;
+
+    void fetchJson<Record<string, { selected: string; available: string[] }>>(`${API_BASE_URL}/api/providers`)
+      .then((providerData) => {
+        if (!cancelled) {
+          setProviders(providerData);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProviders(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetchJson<SymbolProfile>(`${API_BASE_URL}/api/symbols/profile?symbol=${encodeURIComponent(symbol)}`)
+      .then((profile) => {
+        if (!cancelled) {
+          setSymbolProfile(profile);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSymbolProfile(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setDataError(null);
+    setFullHistory([]);
+    setBars([]);
+    setValueLine(null);
+    setForecast(null);
+    setRealizedPath([]);
+
+    void fetchJson<Bar[]>(`${API_BASE_URL}/api/chart?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
+      .then((historyData) => {
+        if (!cancelled) {
+          setFullHistory(historyData);
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) {
+          setDataError(`Unable to load ${symbol}: ${error.message}`);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [symbol, timeframe]);
 
   useEffect(() => {
@@ -127,27 +264,61 @@ export default function App() {
       params.set("as_of", replayDate);
     }
 
-    void Promise.all([
-      fetch(`${API_BASE_URL}/api/chart?${params.toString()}`).then((response) => response.json()),
-      fetch(`${API_BASE_URL}/api/forecast?${params.toString()}&horizon_bars=20`).then((response) => response.json()),
-    ]).then(([chartData, forecastData]) => {
-      setBars(chartData);
-      setForecast(forecastData);
+    let cancelled = false;
 
-      if (replayDate) {
-        const anchor = new Date(replayDate).getTime();
-        const futurePath = fullHistory
-          .filter((bar) => new Date(bar.time).getTime() > anchor)
-          .slice(0, 20)
-          .map((bar) => ({ time: bar.time, value: bar.close }));
-        setRealizedPath(futurePath);
-      } else {
-        setRealizedPath([]);
-      }
-    });
+    void Promise.all([
+      fetchJson<Bar[]>(`${API_BASE_URL}/api/chart?${params.toString()}`),
+      fetchJson<ForecastResponse>(`${API_BASE_URL}/api/forecast?${params.toString()}&horizon_bars=20`),
+      fetchJson<ValueLineResponse>(`${API_BASE_URL}/api/value-line?${params.toString()}`),
+    ])
+      .then(([chartData, forecastData, valueLineData]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setBars(chartData);
+        setForecast(forecastData);
+        setValueLine(valueLineData);
+        setDataError(null);
+
+        if (replayDate) {
+          const anchor = new Date(replayDate).getTime();
+          const futurePath = fullHistory
+            .filter((bar) => new Date(bar.time).getTime() > anchor)
+            .slice(0, 20)
+            .map((bar) => ({ time: bar.time, value: bar.close }));
+          setRealizedPath(futurePath);
+        } else {
+          setRealizedPath([]);
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) {
+          setBars([]);
+          setValueLine(null);
+          setForecast(null);
+          setRealizedPath([]);
+          setDataError(`Unable to load ${symbol}: ${error.message}`);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [symbol, timeframe, replayDate, fullHistory]);
 
   const sliderMax = Math.max(fullHistory.length - 2, 0);
+
+  function commitSymbol(): void {
+    if (!normalizedSymbolInput) {
+      setSymbolInput(symbol);
+      return;
+    }
+
+    setReplayDate("");
+    setSymbol(normalizedSymbolInput);
+    setSymbolInput(normalizedSymbolInput);
+  }
 
   function handleReplayScrub(index: number): void {
     const bar = fullHistory[index];
@@ -161,7 +332,21 @@ export default function App() {
     <main className="app-shell">
       <header className="top-bar">
         <div className="brand">Stock Future Probability Engine</div>
-        <input aria-label="Symbol" value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} />
+        <form
+          className="symbol-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commitSymbol();
+          }}
+        >
+          <input
+            aria-label="Symbol"
+            placeholder="Ticker"
+            value={symbolInput}
+            onChange={(event) => setSymbolInput(event.target.value.toUpperCase())}
+          />
+          <button className="ghost-button" type="submit">Load</button>
+        </form>
         <input aria-label="Replay date" type="datetime-local" value={replayDate} onChange={(event) => setReplayDate(event.target.value)} />
         <button className="ghost-button" onClick={() => setReplayDate("")} type="button">Latest</button>
         <div className="timeframes">
@@ -182,8 +367,14 @@ export default function App() {
         <div className="main-panel">
           <div className="panel-header">
             <h1>{symbol}</h1>
-            <p>Historical candles plus forecast bands generated from free sources and replay-aware history cuts.</p>
+            <p>
+              {companyName ? `${companyName}${companyMeta ? ` • ${companyMeta}` : ""}` : "Historical candles plus forecast bands generated from free sources and replay-aware history cuts."}
+            </p>
+            {symbolProfile?.sector && symbolProfile?.industry ? (
+              <p>{`${symbolProfile.sector} • ${symbolProfile.industry}`}</p>
+            ) : null}
           </div>
+          {dataError ? <div className="status-banner error-banner">{dataError}</div> : null}
           <div className="replay-toolbar">
             <div className="replay-toolbar-copy">
               <span className="eyebrow">Replay Scrubber</span>
@@ -203,7 +394,13 @@ export default function App() {
             <span className="anchor-badge">Anchor</span>
             <span>{forecast?.anchor_time ? new Date(forecast.anchor_time).toLocaleString() : "Latest"}</span>
           </div>
-          <ChartPanel bars={bars} forecast={forecast?.forecast ?? []} realizedPath={realizedPath} />
+          <ChartPanel
+            bars={bars}
+            forecast={forecast?.forecast ?? []}
+            realizedPath={realizedPath}
+            valueLine={valueLine?.points ?? []}
+            macroSummary={forecast?.macro ?? null}
+          />
           <RegimeStrip currentRegime={forecast?.regime_label ?? "n/a"} history={forecast?.regime_history ?? []} />
           <ReplayTable anchorPrice={bars[bars.length - 1]?.close ?? null} forecast={forecast?.forecast ?? []} realizedPath={realizedPath} />
         </div>
@@ -220,6 +417,8 @@ export default function App() {
           scenarios={forecast?.scenarios ?? []}
           providers={providers}
           replaySummary={replaySummary}
+          macroSummary={forecast?.macro ?? null}
+          valueLineSummary={forecast?.value_line ?? valueLine?.summary ?? null}
         />
       </section>
     </main>

@@ -4,6 +4,7 @@ from app.services.providers.events.public import PublicEventsProvider
 from app.services.providers.fundamentals.yahoo import YahooFundamentalsProvider
 from app.services.providers.macro.fred import FredMacroDataProvider
 from app.services.providers.market.yahoo import YahooMarketDataProvider
+from app.services.providers.symbols.yahoo import YahooSymbolLookupProvider
 
 
 MARKET_PROVIDERS = {
@@ -12,6 +13,10 @@ MARKET_PROVIDERS = {
 
 FUNDAMENTALS_PROVIDERS = {
     "yahoo": YahooFundamentalsProvider,
+}
+
+SYMBOL_LOOKUP_PROVIDERS = {
+    "yahoo": YahooSymbolLookupProvider,
 }
 
 MACRO_PROVIDERS = {
@@ -31,6 +36,10 @@ def get_fundamentals_provider():
     return FUNDAMENTALS_PROVIDERS[settings.fundamentals_provider]()
 
 
+def get_symbol_lookup_provider():
+    return SYMBOL_LOOKUP_PROVIDERS[settings.symbol_lookup_provider]()
+
+
 def get_macro_provider():
     return MACRO_PROVIDERS[settings.macro_data_provider]()
 
@@ -43,6 +52,7 @@ def get_provider_info() -> dict[str, ProviderInfo]:
     return {
         "market": ProviderInfo(settings.market_data_provider, sorted(MARKET_PROVIDERS.keys())),
         "fundamentals": ProviderInfo(settings.fundamentals_provider, sorted(FUNDAMENTALS_PROVIDERS.keys())),
+        "symbols": ProviderInfo(settings.symbol_lookup_provider, sorted(SYMBOL_LOOKUP_PROVIDERS.keys())),
         "macro": ProviderInfo(settings.macro_data_provider, sorted(MACRO_PROVIDERS.keys())),
         "events": ProviderInfo(settings.event_data_provider, sorted(EVENT_PROVIDERS.keys())),
     }

@@ -6,9 +6,15 @@ import numpy as np
 import pandas as pd
 
 from app.schemas.forecast import ForecastBandPoint, ForecastResponse, RegimePoint, ScenarioCard
+from app.services.macro_impact_service import MacroImpactService
+from app.services.value_line_service import ValueLineService
 
 
 class ForecastService:
+    def __init__(self):
+        self.macro_impact_service = MacroImpactService()
+        self.value_line_service = ValueLineService()
+
     def build_forecast(self, symbol: str, timeframe: str, frame: pd.DataFrame, horizon_bars: int) -> ForecastResponse:
         if frame.empty:
             raise ValueError(f"No market data returned for {symbol}")
@@ -21,8 +27,17 @@ class ForecastService:
         anchor_time = pd.to_datetime(frame.iloc[-1][frame.columns[0]])
         current_price = float(closes.to_numpy()[-1])
         time_values = pd.to_datetime(frame.iloc[1:][frame.columns[0]]).reset_index(drop=True)
+        macro_summary = self.macro_impact_service.build_summary(frame)
+        value_line = self.value_line_service.build_value_line(symbol, timeframe, frame)
         regime_frame = self._build_regime_frame(closes, returns, time_values)
-        regime_label, regime_match_count, simulated_paths = self._simulate_paths(current_price, returns, regime_frame, horizon_bars)
+        regime_label, regime_match_count, simulated_paths = self._simulate_paths(
+            current_price,
+            returns,
+            regime_frame,
+            horizon_bars,
+            macro_summary.score,
+            value_line.summary.upside_pct,
+        )
         quantiles = np.quantile(simulated_paths, [0.10, 0.25, 0.50, 0.75, 0.90], axis=0)
 
         bands: list[ForecastBandPoint] = []
@@ -90,6 +105,8 @@ class ForecastService:
             scenarios=scenarios,
             forecast=bands,
             regime_history=regime_history,
+            macro=macro_summary,
+            value_line=value_line.summary,
         )
 
     def _simulate_paths(
@@ -98,6 +115,8 @@ class ForecastService:
         returns: pd.Series,
         regime_frame: pd.DataFrame,
         horizon_bars: int,
+        macro_score: float = 0.0,
+        value_upside_pct: float | None = None,
         paths: int = 2000,
     ) -> tuple[str, int, np.ndarray]:
         current_regime = regime_frame["regime"].iloc[-1]
@@ -113,6 +132,20 @@ class ForecastService:
             )
         else:
             sampled = np.random.choice(returns.to_numpy(), size=(paths, horizon_bars), replace=True)
+
+        if macro_score:
+            capped_macro = float(np.clip(macro_score, -2.5, 2.5))
+            macro_bias = capped_macro * 0.05 / horizon_bars
+            sampled = sampled + macro_bias
+            if capped_macro < 0:
+                sampled = np.where(sampled < 0, sampled * (1 + abs(capped_macro) * 0.12), sampled)
+            elif capped_macro > 0:
+                sampled = np.where(sampled > 0, sampled * (1 + capped_macro * 0.08), sampled)
+
+        if value_upside_pct is not None:
+            capped_gap = float(np.clip(value_upside_pct / 100.0, -0.5, 0.5))
+            reversion_bias = np.log1p(capped_gap) * 0.20 / horizon_bars
+            sampled = sampled + reversion_bias
 
         cumulative = np.cumsum(sampled, axis=1)
         simulated_paths = current_price * np.exp(cumulative)

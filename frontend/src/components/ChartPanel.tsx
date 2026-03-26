@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { AreaSeries, BaselineSeries, CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
+import { BaselineSeries, CandlestickSeries, ColorType, LineSeries, createChart } from "lightweight-charts";
 
 type Bar = {
   time: string;
@@ -24,13 +24,28 @@ type RealizedPoint = {
   value: number;
 };
 
+type ValueLinePoint = {
+  time: string;
+  fair_value: number;
+};
+
+type MacroImpactSummary = {
+  regime_label: string;
+  signal: string;
+  score: number;
+  tailwind_factor: string | null;
+  headwind_factor: string | null;
+};
+
 type Props = {
   bars: Bar[];
   forecast: ForecastPoint[];
   realizedPath: RealizedPoint[];
+  valueLine: ValueLinePoint[];
+  macroSummary: MacroImpactSummary | null;
 };
 
-export function ChartPanel({ bars, forecast, realizedPath }: Props) {
+export function ChartPanel({ bars, forecast, realizedPath, valueLine, macroSummary }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -75,16 +90,38 @@ export function ChartPanel({ bars, forecast, realizedPath }: Props) {
       }))
     );
 
-    const upperBand = chart.addSeries(AreaSeries, {
-      topColor: "rgba(58, 134, 255, 0.30)",
-      bottomColor: "rgba(58, 134, 255, 0.04)",
-      lineColor: "rgba(58, 134, 255, 0.0)",
-      lineWidth: 1,
+    const valueLineSeries = chart.addSeries(LineSeries, {
+      color: "#2ec4b6",
+      lineWidth: 2,
     });
-    upperBand.setData(
+    valueLineSeries.setData(
+      valueLine.map((point) => ({
+        time: Math.floor(new Date(point.time).getTime() / 1000) as never,
+        value: point.fair_value,
+      }))
+    );
+
+    const upperBound = chart.addSeries(LineSeries, {
+      color: "rgba(90, 169, 255, 0.95)",
+      lineWidth: 2,
+      lineStyle: 3,
+    });
+    upperBound.setData(
       forecast.map((point) => ({
         time: Math.floor(new Date(point.time).getTime() / 1000) as never,
         value: point.p90,
+      }))
+    );
+
+    const lowerBound = chart.addSeries(LineSeries, {
+      color: "rgba(90, 169, 255, 0.95)",
+      lineWidth: 2,
+      lineStyle: 3,
+    });
+    lowerBound.setData(
+      forecast.map((point) => ({
+        time: Math.floor(new Date(point.time).getTime() / 1000) as never,
+        value: point.p10,
       }))
     );
 
@@ -119,7 +156,39 @@ export function ChartPanel({ bars, forecast, realizedPath }: Props) {
 
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [bars, forecast, realizedPath]);
+  }, [bars, forecast, realizedPath, valueLine]);
 
-  return <div className="chart-panel" ref={containerRef} />;
+  return (
+    <div className="chart-panel-wrap">
+      <div className="chart-legend">
+        <span className="chart-legend-item">
+          <span className="chart-legend-swatch chart-legend-swatch-candles" />
+          Price candles
+        </span>
+        <span className="chart-legend-item">
+          <span className="chart-legend-swatch chart-legend-swatch-value-line" />
+          Value line
+        </span>
+        <span className="chart-legend-item">
+          <span className="chart-legend-swatch chart-legend-swatch-range" />
+          Forecast range 10-90%
+        </span>
+        <span className="chart-legend-item">
+          <span className="chart-legend-swatch chart-legend-swatch-median" />
+          Median forecast
+        </span>
+        <span className="chart-legend-item">
+          <span className="chart-legend-swatch chart-legend-swatch-realized" />
+          Realized path
+        </span>
+      </div>
+      <div className="chart-macro-strip">
+        <span className={`chart-macro-badge chart-macro-${macroSummary?.signal ?? "unavailable"}`}>{macroSummary?.signal ?? "unavailable"}</span>
+        <span className="chart-macro-copy">{macroSummary?.regime_label ?? "Macro regime unavailable"}</span>
+        {macroSummary?.tailwind_factor ? <span className="chart-macro-detail">Tailwind: {macroSummary.tailwind_factor}</span> : null}
+        {macroSummary?.headwind_factor ? <span className="chart-macro-detail">Headwind: {macroSummary.headwind_factor}</span> : null}
+      </div>
+      <div className="chart-panel" ref={containerRef} />
+    </div>
+  );
 }

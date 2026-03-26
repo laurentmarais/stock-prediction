@@ -16,5 +16,10 @@ class FredMacroDataProvider(MacroDataProvider):
         )
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?{params}"
         series = pd.read_csv(url)
-        series["DATE"] = pd.to_datetime(series["DATE"])
-        return series.rename(columns={"DATE": "date", series_name: "value"})
+        date_column = "observation_date" if "observation_date" in series.columns else "DATE" if "DATE" in series.columns else None
+        if date_column is None or series_name not in series.columns:
+            return pd.DataFrame(columns=["date", "value"])
+
+        series[date_column] = pd.to_datetime(series[date_column], errors="coerce")
+        series[series_name] = pd.to_numeric(series[series_name], errors="coerce")
+        return series.rename(columns={date_column: "date", series_name: "value"})[["date", "value"]].dropna()

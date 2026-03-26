@@ -47,6 +47,12 @@ body {
   border-radius: 10px;
 }
 
+.symbol-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .ghost-button {
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
@@ -105,8 +111,108 @@ body {
   color: #95a7b8;
 }
 
+.status-banner {
+  margin: 16px 18px 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+}
+
+.error-banner {
+  border: 1px solid rgba(239, 99, 81, 0.35);
+  background: rgba(239, 99, 81, 0.12);
+  color: #ffd0c8;
+}
+
+.chart-panel-wrap {
+  padding: 12px 18px 0;
+}
+
 .chart-panel {
-  height: 620px;
+  height: 580px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 0 0 12px;
+}
+
+.chart-macro-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+
+.chart-macro-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chart-macro-supportive {
+  background: rgba(90, 194, 122, 0.16);
+  color: #8fe0a6;
+}
+
+.chart-macro-headwind {
+  background: rgba(239, 99, 81, 0.16);
+  color: #ffb1a6;
+}
+
+.chart-macro-neutral,
+.chart-macro-unavailable {
+  background: rgba(69, 123, 157, 0.16);
+  color: #b9d7ea;
+}
+
+.chart-macro-copy,
+.chart-macro-detail {
+  color: #9db0c0;
+  font-size: 0.82rem;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9db0c0;
+  font-size: 0.82rem;
+}
+
+.chart-legend-swatch {
+  width: 20px;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+
+.chart-legend-swatch-candles {
+  border-top-color: #5ac27a;
+}
+
+.chart-legend-swatch-value-line {
+  border-top-color: #2ec4b6;
+}
+
+.chart-legend-swatch-range {
+  border-top-color: rgba(90, 169, 255, 0.95);
+  border-top-style: dotted;
+}
+
+.chart-legend-swatch-median {
+  border-top-color: #ffd166;
+}
+
+.chart-legend-swatch-realized {
+  border-top-color: #f28482;
+  border-top-style: dotted;
 }
 
 .replay-toolbar {
@@ -197,7 +303,8 @@ body {
 }
 
 .scenario-list,
-.provider-list {
+.provider-list,
+.macro-factor-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -327,7 +434,8 @@ body {
   }
 
   .replay-toolbar,
-  .replay-table-head {
+  .replay-table-head,
+  .symbol-form {
     flex-direction: column;
     align-items: stretch;
   }

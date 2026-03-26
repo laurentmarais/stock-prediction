@@ -2,6 +2,9 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.schemas.macro import MacroImpactSummary
+from app.schemas.value_line import ValueLineSummary
+
 
 class ScenarioCard(BaseModel):
     name: str
@@ -39,3 +42,5 @@ class ForecastResponse(BaseModel):
     scenarios: list[ScenarioCard]
     forecast: list[ForecastBandPoint]
     regime_history: list[RegimePoint]
+    macro: MacroImpactSummary
+    value_line: ValueLineSummary
